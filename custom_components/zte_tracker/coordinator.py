@@ -139,9 +139,21 @@ class ZteDataCoordinator(DataUpdateCoordinator):
         self.hass.async_create_background_task(_bg_logout(), "zte_tracker_pause_logout")
 
     def resume_scanning(self) -> None:
-        """Resume device scanning."""
+        """Resume device scanning.
+
+        Forces a clean client-side session reset so the next poll starts
+        with a fresh login, even if the background logout during pause
+        failed or the router still holds a stale session.
+
+        We only clear login_data (not session) to avoid racing with a
+        background logout that may still be using the session object.
+        The login() method sees login_data=None and calls _setup_session()
+        which safely replaces any stale session.
+        """
         self._paused = False
-        _LOGGER.info("ZTE tracker scanning resumed")
+        self._last_login_at = None
+        self.client.login_data = None
+        _LOGGER.info("ZTE tracker scanning resumed (session state cleared)")
 
     def enable_register_new_devices(self) -> None:
         """Enable automatic registration of new devices."""
