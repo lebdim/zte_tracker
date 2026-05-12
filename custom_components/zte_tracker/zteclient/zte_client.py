@@ -7,6 +7,7 @@ from os import error
 
 import base64
 import hashlib
+import json
 import logging
 import time
 from typing import Any
@@ -38,6 +39,7 @@ _MODELS = {
         "type_main_request": "menuData",
         "tag_wan_status_view": "ethWanStatus&Menu3Location=0",
         "tag_wan_status_data": "wan_internetstatus_lua.lua&TypeUplink=2&pageType=1",
+        "topo_data_tag": "topo_lua.lua",
     },
     "H288A": {
         "wlan_script": "accessdev_ssiddev_lua.lua",
@@ -325,15 +327,13 @@ class zteClient:
     def get_devices_response(self) -> list[dict[str, Any]] | None:
         """Get the list of devices with connection reuse optimization."""
         try:
-            # Combine LAN and WiFi requests for efficiency
             lan_devices = self.get_lan_devices()
             wifi_devices = self.get_wifi_devices()
 
             if lan_devices is None and wifi_devices is None:
                 return None
 
-            # Combine results, handling None cases
-            devices = []
+            devices: list[dict[str, Any]] = []
             if lan_devices:
                 devices.extend(lan_devices)
             if wifi_devices:
@@ -410,6 +410,202 @@ class zteClient:
             self.statusmsg = f"Failed to get WiFi devices: {e}"
             _LOGGER.error(self.statusmsg)
             return None
+
+    def _try_topology(self) -> list[dict[str, Any]] | None:
+        """Fetch all devices via the mesh topology endpoint over HTTP.
+
+        The ZTE topology endpoint (``topo_lua.lua``) only works over
+        plain HTTP — HTTPS sessions get ``SessionTimeout``.  This method
+        opens a short-lived HTTP session with its own 3-step login,
+        fetches the topology JSON, and tears down the HTTP session.
+        The main HTTPS session used for legacy endpoints is untouched.
+        """
+        topo_tag = self.paths.get("topo_data_tag")
+        if not topo_tag:
+            _LOGGER.debug("Topology: no topo_data_tag in paths (keys=%s)", list(self.paths.keys()))
+            return None
+
+        # Temporarily disable circuit breaker for diagnostics
+        failures = getattr(self, "_topo_failures", 0)
+        _LOGGER.debug("Topology: starting (tag=%s, failures=%d)", topo_tag, failures)
+
+        http_session = Session()
+        http_session.headers.update(
+            {
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/120.0.0.0 Safari/537.36"
+                ),
+                "DNT": "1",
+                "X-Requested-With": "XMLHttpRequest",
+            }
+        )
+        base = f"http://{self.host}"
+
+        try:
+            # --- Quick 3-step HTTP login (mirrors self.login()) ---
+            # Step 1: session token
+            r = http_session.get(
+                f"{base}/?_type=loginData&_tag=login_entry", timeout=10
+            )
+            info = r.json()
+            if info.get("lockingTime", 1) != 0 or not info.get("sess_token"):
+                _LOGGER.debug("Topology: HTTP login: router locked or no token")
+                self._topo_failures = failures + 1; self._topo_last_fail = time.time()
+                return None
+            sess_token = info["sess_token"]
+
+            # Step 2: challenge nonce
+            r = http_session.get(
+                f"{base}/?_type=loginData&_tag=login_token&_={self.get_guid()}",
+                timeout=10,
+            )
+            root = ET.fromstring(r.content)
+            if root.tag != "ajax_response_xml_root" or not root.text:
+                _LOGGER.debug("Topology: HTTP login: bad login_token XML")
+                self._topo_failures = failures + 1; self._topo_last_fail = time.time()
+                return None
+            login_token = root.text
+
+            # Step 3: authenticate
+            pwd_hash = hashlib.sha256(
+                (self.password + login_token).encode()
+            ).hexdigest()
+            r = http_session.post(
+                f"{base}/?_type=loginData&_tag=login_entry",
+                data={
+                    "action": "login",
+                    "Password": pwd_hash,
+                    "Username": self.username,
+                    "_sessionTOKEN": sess_token,
+                },
+                timeout=10,
+            )
+            login_resp = r.json()
+            if login_resp.get("lockingTime", 0) != 0:
+                _LOGGER.debug("Topology HTTP login denied: %s", login_resp.get("loginErrMsg"))
+                self._topo_failures = failures + 1; self._topo_last_fail = time.time()
+                return None
+
+            # --- Establish SPA context (required by ZTE firmware) ---
+            # The router requires a full page load after login to initialize
+            # server-side session state, then a menuView navigation to the
+            # topology page before topo_lua.lua will return data.
+            http_session.get(f"{base}/", timeout=10)
+            http_session.get(
+                f"{base}/?_type=menuView&_tag=mmTopology&Menu3Location=0"
+                f"&_={self.get_guid()}",
+                timeout=10,
+            )
+
+            # --- Fetch topology ---
+            r = http_session.get(
+                f"{base}/?_type=menuData&_tag={topo_tag}&_={self.get_guid()}",
+                timeout=10,
+            )
+
+            text = r.text
+            if "SessionTimeout" in text or "<html" in text[:500].lower():
+                _LOGGER.debug("Topology: HTTP fetch: error response (len=%d)", len(text))
+                self._topo_failures = failures + 1; self._topo_last_fail = time.time()
+                return None
+
+            data = json.loads(text)
+            devices = self._parse_topology_json(data)
+            if devices:
+                _LOGGER.info(
+                    "Topology returned %d mesh devices via HTTP", len(devices)
+                )
+                self._topo_failures = 0
+                self.statusmsg = "OK"
+                return devices
+
+            _LOGGER.debug("Topology: returned JSON but no devices")
+            return None
+
+        except json.JSONDecodeError:
+            _LOGGER.debug("Topology: returned non-JSON over HTTP")
+            self._topo_failures = failures + 1; self._topo_last_fail = time.time()
+            return None
+        except Exception as ex:
+            _LOGGER.debug("Topology: HTTP fetch failed: %s", ex)
+            self._topo_failures = failures + 1; self._topo_last_fail = time.time()
+            return None
+        finally:
+            try:
+                http_session.post(
+                    f"{base}/?_type=loginData&_tag=logout_entry",
+                    data={"IF_LogOff": "1"},
+                    timeout=5,
+                )
+            except Exception:
+                pass
+            http_session.close()
+
+    def _parse_topology_json(self, data: dict) -> list[dict[str, Any]] | None:
+        """Parse mesh topology JSON into the standard device list format.
+
+        Expected JSON structure from ``topo_lua.lua``::
+
+            {
+              "slave": [{"instID": "MESH.AGENT1", ...}],
+              "master": {"instID": "MESH.CONTROLLER", ...},
+              "ad": {
+                "1": {"parent": "...", "MacAddr": "...", "IpAddr": "...",
+                      "HostName": "...", "AccessType": "0|1|2"},
+                "MGET_INST_NUM": 30
+              }
+            }
+
+        AccessType: ``"0"`` = LAN, ``"1"`` = 2.4 GHz WiFi, ``"2"`` = 5 GHz WiFi.
+        """
+        ad = data.get("ad")
+        if not ad or not isinstance(ad, dict):
+            return None
+
+        # Build mesh-node name lookup from master + slaves
+        node_names: dict[str, str] = {}
+        master = data.get("master")
+        if master and isinstance(master, dict):
+            node_names[master.get("instID", "")] = master.get(
+                "DeviceName", "Controller"
+            )
+        for slave in data.get("slave") or []:
+            if isinstance(slave, dict):
+                inst = slave.get("instID", "")
+                node_names[inst] = slave.get("DeviceName", inst)
+
+        access_type_map = {"0": "LAN", "1": "WLAN", "2": "WLAN"}
+
+        devices: list[dict[str, Any]] = []
+        for key, entry in ad.items():
+            if not isinstance(entry, dict):
+                continue  # skip MGET_INST_NUM and other non-device entries
+
+            mac = entry.get("MacAddr", "")
+            if not mac:
+                continue
+
+            parent_id = entry.get("parent", "")
+            access = str(entry.get("AccessType", ""))
+
+            devices.append(
+                {
+                    "MACAddress": mac.upper(),
+                    "HostName": entry.get("HostName", ""),
+                    "IPAddress": entry.get("IpAddr", ""),
+                    "Active": True,
+                    "IconType": "",
+                    "NetworkType": access_type_map.get(access, "Unknown"),
+                    "Port": "",
+                    "LinkTime": "",
+                    "ConnectTime": "",
+                    "MeshNode": node_names.get(parent_id, parent_id),
+                }
+            )
+
+        return devices if devices else None
 
     def get_router_details(self) -> dict[str, Any] | None:
         """Get router details."""

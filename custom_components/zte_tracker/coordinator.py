@@ -217,6 +217,7 @@ class ZteDataCoordinator(DataUpdateCoordinator):
                 "port": device.get("Port", ""),  # LAN port or WLAN ESSID
                 "LinkTime": device.get("LinkTime", ""),
                 "ConnectTime": device.get("ConnectTime", ""),
+                "mesh_node": device.get("MeshNode", ""),
             }
 
             # Merge with cached data if available
@@ -411,6 +412,27 @@ class ZteDataCoordinator(DataUpdateCoordinator):
             devices, wanstatus, routerdetails = await self.hass.async_add_executor_job(
                 _fetch_router_data
             )
+
+            # Topology enrichment: after ALL HTTPS data is collected,
+            # try the mesh topology endpoint over a separate HTTP session.
+            # This may invalidate the HTTPS session (single-admin constraint)
+            # but all HTTPS data is already safely fetched above.
+            if devices is not None:
+                try:
+                    topo_devices = await self.hass.async_add_executor_job(
+                        self.client._try_topology
+                    )
+                    if topo_devices:
+                        _LOGGER.warning(
+                            "Mesh topology: %d devices (was %d from legacy)",
+                            len(topo_devices),
+                            len(devices),
+                        )
+                        devices = topo_devices
+                    else:
+                        _LOGGER.warning("Topology returned None; using legacy %d devices", len(devices))
+                except Exception as ex:
+                    _LOGGER.warning("Topology enrichment failed: %s", ex)
 
         if devices is None:
             self._available = False
