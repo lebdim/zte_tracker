@@ -38,7 +38,8 @@
           "model": "Router Model",
           "query_wan_status": "Query WAN status",
           "query_router_details": "Query router details",
-          "session_reuse": "Reuse router session across polls (reduces auth-log noise; recommended for F6600P)"
+          "session_reuse": "Reuse router session across polls (reduces auth-log noise; recommended for F6600P)",
+          "mesh_topology": "Query mesh topology for all devices across mesh nodes (requires HTTP access to router)"
         }
       }
     }

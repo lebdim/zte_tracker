@@ -16,9 +16,11 @@ from homeassistant.helpers.typing import ConfigType
 import voluptuous as vol
 
 from .const import (
+    CONF_MESH_TOPOLOGY,
     CONF_QUERY_ROUTER_DETAILS,
     CONF_QUERY_WAN_STATUS,
     CONF_SESSION_REUSE,
+    DEFAULT_MESH_TOPOLOGY,
     DEFAULT_QUERY_ROUTER_DETAILS,
     DEFAULT_QUERY_WAN_STATUS,
     DEFAULT_SESSION_REUSE,
@@ -136,6 +138,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             )
             await async_reload_entry(hass, updated_entry)
             return
+
+        # mesh_topology can be toggled at runtime without reload
+        new_mesh_topology = bool(
+            updated_entry.options.get(
+                CONF_MESH_TOPOLOGY,
+                updated_entry.data.get(CONF_MESH_TOPOLOGY, DEFAULT_MESH_TOPOLOGY),
+            )
+        )
+        coordinator._mesh_topology = new_mesh_topology
 
         # Apply to existing client
         client = getattr(coordinator, "client", None)

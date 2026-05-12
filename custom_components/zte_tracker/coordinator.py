@@ -13,10 +13,12 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import (
+    CONF_MESH_TOPOLOGY,
     CONF_QUERY_ROUTER_DETAILS,
     CONF_QUERY_WAN_STATUS,
     CONF_REGISTER_NEW_DEVICES,
     CONF_SESSION_REUSE,
+    DEFAULT_MESH_TOPOLOGY,
     DEFAULT_SESSION_REUSE,
     DOMAIN,
 )
@@ -89,6 +91,12 @@ class ZteDataCoordinator(DataUpdateCoordinator):
             entry.options.get(
                 CONF_SESSION_REUSE,
                 entry.data.get(CONF_SESSION_REUSE, DEFAULT_SESSION_REUSE),
+            )
+        )
+        self._mesh_topology = bool(
+            entry.options.get(
+                CONF_MESH_TOPOLOGY,
+                entry.data.get(CONF_MESH_TOPOLOGY, DEFAULT_MESH_TOPOLOGY),
             )
         )
 
@@ -417,22 +425,20 @@ class ZteDataCoordinator(DataUpdateCoordinator):
             # try the mesh topology endpoint over a separate HTTP session.
             # This may invalidate the HTTPS session (single-admin constraint)
             # but all HTTPS data is already safely fetched above.
-            if devices is not None:
+            if devices is not None and self._mesh_topology:
                 try:
                     topo_devices = await self.hass.async_add_executor_job(
                         self.client._try_topology
                     )
                     if topo_devices:
-                        _LOGGER.warning(
+                        _LOGGER.info(
                             "Mesh topology: %d devices (was %d from legacy)",
                             len(topo_devices),
                             len(devices),
                         )
                         devices = topo_devices
-                    else:
-                        _LOGGER.warning("Topology returned None; using legacy %d devices", len(devices))
                 except Exception as ex:
-                    _LOGGER.warning("Topology enrichment failed: %s", ex)
+                    _LOGGER.debug("Topology enrichment failed: %s", ex)
 
         if devices is None:
             self._available = False
