@@ -443,6 +443,22 @@ class ZteDataCoordinator(DataUpdateCoordinator):
                         self.client._try_topology
                     )
                     if topo_devices:
+                        # Enrich topology devices with SSID info from legacy
+                        # WiFi call (legacy has Port = SSID name for controller
+                        # WiFi devices; topology only has generic AccessType)
+                        if devices:
+                            legacy_by_mac = {
+                                d.get("MACAddress", ""): d for d in devices
+                            }
+                            for td in topo_devices:
+                                legacy = legacy_by_mac.get(td.get("MACAddress", ""))
+                                if legacy and legacy.get("Port"):
+                                    td["Port"] = legacy["Port"]
+                                if legacy and legacy.get("ConnectTime"):
+                                    td["ConnectTime"] = legacy["ConnectTime"]
+                                if legacy and legacy.get("LinkTime"):
+                                    td["LinkTime"] = legacy["LinkTime"]
+
                         _LOGGER.info(
                             "Mesh topology: %d devices (was %d from legacy)",
                             len(topo_devices),
