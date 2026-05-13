@@ -522,6 +522,7 @@ class zteClient:
                 return devices
 
             _LOGGER.debug("Topology inline: valid JSON but no devices")
+            self._topo_failures = failures + 1; self._topo_last_fail = time.time()
             return None
 
         except json.JSONDecodeError:

@@ -209,7 +209,19 @@ class ZteDataCoordinator(DataUpdateCoordinator):
         topo_devices: list[dict[str, Any]],
         legacy_devices: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
-        """Enrich topology devices with SSID and metadata from legacy data."""
+        """Enrich topology devices with SSID and metadata from legacy data.
+
+        Only replaces legacy list if topology has at least as many devices.
+        """
+        # Safety: don't replace if topology returned fewer devices
+        if len(topo_devices) < len(legacy_devices):
+            _LOGGER.warning(
+                "Topology has fewer devices (%d) than legacy (%d); using legacy",
+                len(topo_devices),
+                len(legacy_devices),
+            )
+            return legacy_devices
+
         legacy_by_mac = {d.get("MACAddress", ""): d for d in legacy_devices}
 
         # Phase 1: merge known fields by MAC

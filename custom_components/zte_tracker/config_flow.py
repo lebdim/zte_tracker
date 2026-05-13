@@ -390,6 +390,11 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                                 CONF_SESSION_REUSE, current_session_reuse
                             )
                         ),
+                        CONF_MESH_TOPOLOGY: bool(
+                            user_input.get(
+                                CONF_MESH_TOPOLOGY, current_mesh_topology
+                            )
+                        ),
                     }
                     return self.async_create_entry(title="", data=options_payload)
 
@@ -404,6 +409,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             )
             current_session_reuse = bool(
                 user_input.get(CONF_SESSION_REUSE, current_session_reuse)
+            )
+            current_mesh_topology = bool(
+                user_input.get(CONF_MESH_TOPOLOGY, current_mesh_topology)
             )
 
         data_schema = vol.Schema(
