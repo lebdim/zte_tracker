@@ -104,6 +104,7 @@ class zteClient:
         query_wan_status: bool = DEFAULT_QUERY_WAN_STATUS,
         query_router_details: bool = DEFAULT_QUERY_ROUTER_DETAILS,
         scheme: str = "auto",
+        mesh_topology: bool = False,
     ) -> None:
         """Initialize the client."""
         self.statusmsg: str | None = None
@@ -113,6 +114,7 @@ class zteClient:
         # Flags to enable/disable optional router queries
         self.query_wan_status = bool(query_wan_status)
         self.query_router_details = bool(query_router_details)
+        self.mesh_topology = bool(mesh_topology)
         self.session: Session | None = None
         self.login_data: dict[str, Any] | None = None
         self.status = "on"
@@ -134,12 +136,7 @@ class zteClient:
         return list(_MODELS.keys())
 
     def _setup_session(self) -> None:
-        """Set up HTTP session with retry strategy and browser-like settings.
-
-        Performs an initial page load to initialize the router's session
-        state and cookies (``_TESTCOOKIESUPPORT``/``SID``).  Without this,
-        the ZTE firmware rejects subsequent API calls with SessionTimeout.
-        """
+        """Set up HTTP session with retry strategy and security settings."""
         self.session = Session()
 
         # Set up retry strategy
@@ -153,7 +150,7 @@ class zteClient:
         self.session.mount("http://", adapter)
         self.session.mount("https://", adapter)
 
-        # Set browser-like headers
+        # Set headers
         self.session.headers.update(
             {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -161,23 +158,24 @@ class zteClient:
             }
         )
 
-        # Initial page load — initializes server-side session state and
-        # sets required cookies (_TESTCOOKIESUPPORT / SID / SID_HTTPS_).
-        try:
-            self.session.get(
-                f"{self.base_url}/", verify=self.verify_ssl, timeout=10
-            )
-        except Exception:
-            pass  # Best-effort; login will fail later if router unreachable
+        if self.mesh_topology:
+            # Mesh topology requires browser-like session initialization:
+            # 1. Page load to set cookies (_TESTCOOKIESUPPORT / SID)
+            # 2. XHR headers for subsequent API calls
+            # Without this, topology endpoint returns SessionTimeout.
+            try:
+                self.session.get(
+                    f"{self.base_url}/", verify=self.verify_ssl, timeout=10
+                )
+            except Exception:
+                pass  # Best-effort; login will fail later if unreachable
 
-        # Add XHR headers AFTER page load (page load must look like
-        # a normal browser navigation, not an AJAX request)
-        self.session.headers.update(
-            {
-                "X-Requested-With": "XMLHttpRequest",
-                "Referer": f"{self.base_url}/",
-            }
-        )
+            self.session.headers.update(
+                {
+                    "X-Requested-With": "XMLHttpRequest",
+                    "Referer": f"{self.base_url}/",
+                }
+            )
 
     def login(self) -> bool:
         """Login procedure using ZTE challenge. Returns True if successful, False otherwise. Sets statusmsg for error reporting."""
@@ -275,15 +273,16 @@ class zteClient:
 
             # Handle refresh requirement
             if self.login_data.get("login_need_refresh") == 1:
-                _LOGGER.debug("Login refresh required, reloading page")
-                try:
-                    self.session.get(
-                        f"{self.base_url}/",
-                        verify=self.verify_ssl,
-                        timeout=10,
-                    )
-                except Exception:
-                    pass  # Best-effort reload
+                _LOGGER.debug("Login refresh required")
+                if self.mesh_topology:
+                    try:
+                        self.session.get(
+                            f"{self.base_url}/",
+                            verify=self.verify_ssl,
+                            timeout=10,
+                        )
+                    except Exception:
+                        pass  # Best-effort reload
             # Check for error messaging.
             if self.login_data.get("lockingTime", 0) == -1:
                 self.statusmsg = f"Router is locked: {self.login_data.get('loginErrMsg', 'Unknown error')}"

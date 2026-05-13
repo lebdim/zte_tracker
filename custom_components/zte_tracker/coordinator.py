@@ -65,6 +65,7 @@ class ZteDataCoordinator(DataUpdateCoordinator):
             verify_ssl=False,
             query_wan_status=query_wan,
             query_router_details=query_router,
+            mesh_topology=self._mesh_topology,
         )
         self._available = True
         self._paused = False
