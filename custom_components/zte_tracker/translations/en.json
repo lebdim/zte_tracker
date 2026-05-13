@@ -38,17 +38,9 @@
           "model": "Router Model",
           "query_wan_status": "Query WAN status",
           "query_router_details": "Query router details",
-          "session_reuse": "Reuse router session across polls (reduces login spam in router logs; recommended if your router logs an auth event on every poll)",
-          "mesh_topology": "Query mesh topology for all devices across mesh nodes (requires HTTP access to router)"
+          "session_reuse": "Reuse router session across polls (reduces login spam in router logs; recommended if your router logs an auth event on every poll)"
         }
       }
-    },
-    "error": {
-      "cannot_connect": "Failed to connect to the router with the new settings. Please check host, username and password.",
-      "invalid_host": "Invalid host address",
-      "invalid_username": "Invalid username",
-      "invalid_password": "Invalid password",
-      "unknown": "Unexpected error occurred"
     }
   },
   "services": {
