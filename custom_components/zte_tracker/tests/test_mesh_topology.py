@@ -13,58 +13,58 @@ TOPOLOGY_JSON_30_DEVICES = {
     "slave": [
         {
             "instID": "MESH.AGENT1",
-            "IpAddr": "192.168.1.8",
-            "MacAddr": "14:09:b4:bf:a6:6b",
+            "IpAddr": "10.0.0.8",
+            "MacAddr": "aa:bb:cc:dd:ee:01",
             "DeviceName": "ZTE:H196A V9",
             "AccessType": "5G",
-            "SoftwareVer": "V9.0.0P2_WIND",
+            "SoftwareVer": "V9.0.0P2",
         }
     ],
     "master": {
         "instID": "MESH.CONTROLLER",
-        "IpAddr": "192.168.1.1",
-        "MacAddr": "84:3c:99:49:a3:4b",
+        "IpAddr": "10.0.0.1",
+        "MacAddr": "aa:bb:cc:dd:ee:00",
         "DeviceName": "ZTE:F6600P",
         "SoftwareVer": "V9.0.10P24N1",
     },
     "ad": {
         "1": {
             "parent": "MESH.CONTROLLER",
-            "HostName": "Docker-SRV",
-            "MacAddr": "bc:24:11:fa:25:21",
-            "IpAddr": "192.168.1.20",
+            "HostName": "test-server",
+            "MacAddr": "11:22:33:44:55:01",
+            "IpAddr": "10.0.0.20",
             "AccessType": "0",
             "IF_ERRORID": 0,
         },
         "2": {
             "parent": "MESH.CONTROLLER",
-            "HostName": "yeelink-light",
-            "MacAddr": "ec:4d:3e:3d:4f:18",
-            "IpAddr": "192.168.1.4",
+            "HostName": "test-light",
+            "MacAddr": "11:22:33:44:55:02",
+            "IpAddr": "10.0.0.4",
             "AccessType": "1",
             "IF_ERRORID": 0,
         },
         "3": {
             "parent": "MESH.CONTROLLER",
-            "HostName": "DS-S25U",
-            "MacAddr": "a0:b0:bd:00:8c:36",
-            "IpAddr": "192.168.1.73",
+            "HostName": "test-camera",
+            "MacAddr": "11:22:33:44:55:03",
+            "IpAddr": "10.0.0.73",
             "AccessType": "2",
             "IF_ERRORID": 0,
         },
         "4": {
             "parent": "MESH.AGENT1",
-            "HostName": "IoT-Device-1",
-            "MacAddr": "58:b6:23:bd:48:cf",
-            "IpAddr": "192.168.1.7",
+            "HostName": "test-iot-1",
+            "MacAddr": "11:22:33:44:55:04",
+            "IpAddr": "10.0.0.7",
             "AccessType": "1",
             "IF_ERRORID": 0,
         },
         "5": {
             "parent": "MESH.AGENT1",
-            "HostName": "IoT-Device-2",
-            "MacAddr": "c4:93:bb:d3:dc:c7",
-            "IpAddr": "192.168.1.36",
+            "HostName": "test-iot-2",
+            "MacAddr": "11:22:33:44:55:05",
+            "IpAddr": "10.0.0.36",
             "AccessType": 1,  # integer instead of string — test normalization
             "IF_ERRORID": 0,
         },
@@ -81,13 +81,13 @@ HTML_404_PAGE = '<html><head><title>404</title></head><body>Not Found</body></ht
 @pytest.fixture
 def client():
     """Create a zteClient instance for testing."""
-    return zteClient("192.168.1.1", "admin", "test", "F6640")
+    return zteClient("10.0.0.1", "admin", "test", "F6640")
 
 
 @pytest.fixture
 def client_no_topo():
     """Create a client for a model without topology support."""
-    return zteClient("192.168.1.1", "admin", "test", "H288A")
+    return zteClient("10.0.0.1", "admin", "test", "H288A")
 
 
 # --- _parse_topology_json tests ---
@@ -106,9 +106,9 @@ class TestParseTopologyJson:
         """Parsed devices have all expected fields."""
         devices = client._parse_topology_json(TOPOLOGY_JSON_30_DEVICES)
         d = devices[0]  # Docker-SRV
-        assert d["MACAddress"] == "BC:24:11:FA:25:21"
-        assert d["HostName"] == "Docker-SRV"
-        assert d["IPAddress"] == "192.168.1.20"
+        assert d["MACAddress"] == "11:22:33:44:55:01"
+        assert d["HostName"] == "test-server"
+        assert d["IPAddress"] == "10.0.0.20"
         assert d["Active"] is True
         assert d["NetworkType"] == "LAN"
         assert d["MeshNode"] == "ZTE:F6600P"
@@ -117,23 +117,23 @@ class TestParseTopologyJson:
         """AccessType maps to correct NetworkType."""
         devices = client._parse_topology_json(TOPOLOGY_JSON_30_DEVICES)
         by_mac = {d["MACAddress"]: d for d in devices}
-        assert by_mac["BC:24:11:FA:25:21"]["NetworkType"] == "LAN"  # AccessType 0
-        assert by_mac["EC:4D:3E:3D:4F:18"]["NetworkType"] == "WLAN"  # AccessType 1
-        assert by_mac["A0:B0:BD:00:8C:36"]["NetworkType"] == "WLAN"  # AccessType 2
+        assert by_mac["11:22:33:44:55:01"]["NetworkType"] == "LAN"  # AccessType 0
+        assert by_mac["11:22:33:44:55:02"]["NetworkType"] == "WLAN"  # AccessType 1
+        assert by_mac["11:22:33:44:55:03"]["NetworkType"] == "WLAN"  # AccessType 2
 
     def test_access_type_integer_normalization(self, client):
         """Integer AccessType is normalized to string for mapping."""
         devices = client._parse_topology_json(TOPOLOGY_JSON_30_DEVICES)
         by_mac = {d["MACAddress"]: d for d in devices}
         # Device 5 has AccessType as integer 1
-        assert by_mac["C4:93:BB:D3:DC:C7"]["NetworkType"] == "WLAN"
+        assert by_mac["11:22:33:44:55:05"]["NetworkType"] == "WLAN"
 
     def test_mesh_node_attribution(self, client):
         """Devices are attributed to correct mesh nodes."""
         devices = client._parse_topology_json(TOPOLOGY_JSON_30_DEVICES)
         by_mac = {d["MACAddress"]: d for d in devices}
-        assert by_mac["BC:24:11:FA:25:21"]["MeshNode"] == "ZTE:F6600P"  # Controller
-        assert by_mac["58:B6:23:BD:48:CF"]["MeshNode"] == "ZTE:H196A V9"  # Agent
+        assert by_mac["11:22:33:44:55:01"]["MeshNode"] == "ZTE:F6600P"  # Controller
+        assert by_mac["11:22:33:44:55:04"]["MeshNode"] == "ZTE:H196A V9"  # Agent
 
     def test_mac_uppercased(self, client):
         """MAC addresses are uppercased for consistency."""
@@ -161,7 +161,7 @@ class TestParseTopologyJson:
                 "1": {
                     "parent": "MESH.CONTROLLER",
                     "MacAddr": "aa:bb:cc:dd:ee:ff",
-                    "IpAddr": "192.168.1.100",
+                    "IpAddr": "10.0.0.100",
                     "HostName": "Test",
                     "AccessType": "0",
                 },
@@ -181,7 +181,7 @@ class TestParseTopologyJson:
                 "1": {
                     "parent": "MESH.CONTROLLER",
                     "MacAddr": "",
-                    "IpAddr": "192.168.1.100",
+                    "IpAddr": "10.0.0.100",
                     "HostName": "NoMAC",
                     "AccessType": "0",
                 },
@@ -197,7 +197,7 @@ class TestParseTopologyJson:
                 "1": {
                     "parent": "UNKNOWN_NODE",
                     "MacAddr": "aa:bb:cc:dd:ee:ff",
-                    "IpAddr": "192.168.1.100",
+                    "IpAddr": "10.0.0.100",
                     "HostName": "Test",
                     "AccessType": "0",
                 },
@@ -331,11 +331,11 @@ class TestTopologySSIDEnrichment:
         """Port/SSID from legacy WiFi data is merged into topology devices."""
         legacy_devices = [
             {
-                "MACAddress": "EC:4D:3E:3D:4F:18",
-                "HostName": "yeelink-light",
-                "IPAddress": "192.168.1.4",
+                "MACAddress": "11:22:33:44:55:02",
+                "HostName": "test-light",
+                "IPAddress": "10.0.0.4",
                 "NetworkType": "WLAN",
-                "Port": "DSI-WN",
+                "Port": "TestIoT-SSID",
                 "ConnectTime": "2026-05-13T10:00:00",
                 "LinkTime": "3600",
                 "Active": True,
@@ -343,9 +343,9 @@ class TestTopologySSIDEnrichment:
         ]
         topo_devices = [
             {
-                "MACAddress": "EC:4D:3E:3D:4F:18",
-                "HostName": "yeelink-light",
-                "IPAddress": "192.168.1.4",
+                "MACAddress": "11:22:33:44:55:02",
+                "HostName": "test-light",
+                "IPAddress": "10.0.0.4",
                 "NetworkType": "WLAN",
                 "Port": "",
                 "ConnectTime": "",
@@ -354,9 +354,9 @@ class TestTopologySSIDEnrichment:
                 "Active": True,
             },
             {
-                "MACAddress": "58:B6:23:BD:48:CF",
-                "HostName": "IoT-Agent",
-                "IPAddress": "192.168.1.7",
+                "MACAddress": "11:22:33:44:55:04",
+                "HostName": "test-iot-agent",
+                "IPAddress": "10.0.0.7",
                 "NetworkType": "WLAN",
                 "Port": "",
                 "ConnectTime": "",
@@ -378,7 +378,7 @@ class TestTopologySSIDEnrichment:
                 td["LinkTime"] = legacy["LinkTime"]
 
         # Controller WiFi device gets SSID
-        assert topo_devices[0]["Port"] == "DSI-WN"
+        assert topo_devices[0]["Port"] == "TestIoT-SSID"
         assert topo_devices[0]["ConnectTime"] == "2026-05-13T10:00:00"
         assert topo_devices[0]["LinkTime"] == "3600"
         # Agent device keeps empty (not in legacy)

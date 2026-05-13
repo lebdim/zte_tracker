@@ -454,17 +454,11 @@ class zteClient:
     def _try_topology(self) -> list[dict[str, Any]] | None:
         """Fetch all devices via the mesh topology endpoint.
 
-        When the client uses HTTP (``self.scheme == "http"``), this
-        method reuses the existing session — no separate login needed.
-        It navigates the SPA (page load + menuView mmTopology) then
-        fetches ``topo_lua.lua``.
-
-        When the client uses HTTPS, topology requires a separate
-        short-lived HTTP session with its own login, because the
-        topology endpoint only responds over plain HTTP.  This HTTP
-        login will invalidate the HTTPS session (single-admin
-        constraint), so the coordinator must call this AFTER all
-        HTTPS data collection is complete.
+        Uses the existing session to navigate to the topology page
+        (menuView mmTopology) and fetch device data (menuData
+        topo_lua.lua).  Requires ``mesh_topology=True`` so that
+        ``_setup_session()`` performed the initial page load and set
+        browser-like XHR headers.
 
         Includes a circuit breaker: disables topology after 3
         consecutive failures, resets after 5-minute cooldown.
