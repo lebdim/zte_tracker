@@ -155,7 +155,6 @@ class zteClient:
                 "DNT": "1",
             }
         )
-        # self.session.cookies.set("_TESTCOOKIESUPPORT", "1")
 
     def login(self) -> bool:
         """Login procedure using ZTE challenge. Returns True if successful, False otherwise. Sets statusmsg for error reporting."""
@@ -454,27 +453,32 @@ class zteClient:
             failures = 0
             self._topo_failures = 0
 
-        if self.scheme == "http" and self.session:
+        if self.session:
             return self._fetch_topology_inline(topo_tag, failures)
         else:
-            return self._fetch_topology_separate(topo_tag, failures)
+            return None
 
     def _fetch_topology_inline(
         self, topo_tag: str, failures: int
     ) -> list[dict[str, Any]] | None:
-        """Fetch topology using the existing HTTP session (no extra login)."""
+        """Fetch topology using the existing session (no extra login).
+
+        Navigates to the topology page via menuView, then fetches the
+        topology data — exactly as the browser does when switching tabs.
+        """
         try:
-            # SPA bootstrap: page load + navigate to topology
-            self.session.get(f"{self.base_url}/", timeout=10)
+            # Navigate to topology context (like clicking "Topology" tab)
             self.session.get(
                 f"{self.base_url}/?_type=menuView&_tag=mmTopology"
                 f"&Menu3Location=0&_={self.get_guid()}",
+                verify=self.verify_ssl,
                 timeout=10,
             )
 
             r = self.session.get(
                 f"{self.base_url}/?_type=menuData&_tag={topo_tag}"
                 f"&_={self.get_guid()}",
+                verify=self.verify_ssl,
                 timeout=10,
             )
             self.log_request(r)
@@ -669,6 +673,7 @@ class zteClient:
                     "Active": True,
                     "IconType": "",
                     "NetworkType": access_type_map.get(access, "Unknown"),
+                    "_AccessType": access,
                     "Port": "",
                     "LinkTime": "",
                     "ConnectTime": "",

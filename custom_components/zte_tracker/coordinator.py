@@ -443,21 +443,38 @@ class ZteDataCoordinator(DataUpdateCoordinator):
                         self.client._try_topology
                     )
                     if topo_devices:
-                        # Enrich topology devices with SSID info from legacy
-                        # WiFi call (legacy has Port = SSID name for controller
-                        # WiFi devices; topology only has generic AccessType)
+                        # Enrich topology devices with SSID and metadata from
+                        # legacy WiFi/LAN data, then propagate SSID to agent
+                        # devices based on AccessType matching.
                         if devices:
                             legacy_by_mac = {
                                 d.get("MACAddress", ""): d for d in devices
                             }
+                            # Phase 1: merge known fields by MAC
                             for td in topo_devices:
                                 legacy = legacy_by_mac.get(td.get("MACAddress", ""))
-                                if legacy and legacy.get("Port"):
-                                    td["Port"] = legacy["Port"]
-                                if legacy and legacy.get("ConnectTime"):
-                                    td["ConnectTime"] = legacy["ConnectTime"]
-                                if legacy and legacy.get("LinkTime"):
-                                    td["LinkTime"] = legacy["LinkTime"]
+                                if legacy:
+                                    if legacy.get("Port"):
+                                        td["Port"] = legacy["Port"]
+                                    if legacy.get("ConnectTime"):
+                                        td["ConnectTime"] = legacy["ConnectTime"]
+                                    if legacy.get("LinkTime"):
+                                        td["LinkTime"] = legacy["LinkTime"]
+
+                            # Phase 2: build AccessType→SSID map from enriched
+                            # controller devices, then apply to agent devices
+                            # that have the same AccessType but no SSID yet.
+                            ssid_by_access = {}
+                            for td in topo_devices:
+                                port = td.get("Port", "")
+                                access = td.get("_AccessType", "")
+                                if port and access and access not in ssid_by_access:
+                                    ssid_by_access[access] = port
+                            for td in topo_devices:
+                                if not td.get("Port") and td.get("_AccessType"):
+                                    td["Port"] = ssid_by_access.get(
+                                        td["_AccessType"], ""
+                                    )
 
                         _LOGGER.info(
                             "Mesh topology: %d devices (was %d from legacy)",
