@@ -157,6 +157,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if client:
             client.query_wan_status = bool(query_wan)
             client.query_router_details = bool(query_router)
+            client.mesh_topology = new_mesh_topology
 
         # Request an immediate refresh so the new options take effect
         try:

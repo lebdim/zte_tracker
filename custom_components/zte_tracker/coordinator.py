@@ -204,6 +204,43 @@ class ZteDataCoordinator(DataUpdateCoordinator):
             self._last_login_at = None
             return result
 
+    def _enrich_topology(
+        self,
+        topo_devices: list[dict[str, Any]],
+        legacy_devices: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Enrich topology devices with SSID and metadata from legacy data."""
+        legacy_by_mac = {d.get("MACAddress", ""): d for d in legacy_devices}
+
+        # Phase 1: merge known fields by MAC
+        for td in topo_devices:
+            legacy = legacy_by_mac.get(td.get("MACAddress", ""))
+            if legacy:
+                if legacy.get("Port"):
+                    td["Port"] = legacy["Port"]
+                if legacy.get("ConnectTime"):
+                    td["ConnectTime"] = legacy["ConnectTime"]
+                if legacy.get("LinkTime"):
+                    td["LinkTime"] = legacy["LinkTime"]
+
+        # Phase 2: propagate SSID to agent devices by AccessType
+        ssid_by_access: dict[str, str] = {}
+        for td in topo_devices:
+            port = td.get("Port", "")
+            access = td.get("_AccessType", "")
+            if port and access and access not in ssid_by_access:
+                ssid_by_access[access] = port
+        for td in topo_devices:
+            if not td.get("Port") and td.get("_AccessType"):
+                td["Port"] = ssid_by_access.get(td["_AccessType"], "")
+
+        _LOGGER.info(
+            "Mesh topology: %d devices (was %d from legacy)",
+            len(topo_devices),
+            len(legacy_devices),
+        )
+        return topo_devices
+
     def _merge_device_data(self, new_devices: list[dict[str, Any]]) -> dict[str, Any]:
         """Merge new device data with cached data for better stability."""
         processed_devices = {}
@@ -293,6 +330,13 @@ class ZteDataCoordinator(DataUpdateCoordinator):
                 devices = self.client.get_devices_response()
                 wanstatus = self.client.get_wan_status()
                 routerdetails = self.client.get_router_details()
+
+                # Mesh topology enrichment (before logout!)
+                if devices is not None and self._mesh_topology:
+                    topo = self.client._try_topology()
+                    if topo:
+                        devices = self._enrich_topology(topo, devices)
+
                 return devices, wanstatus, routerdetails
             except Exception as ex:
                 _LOGGER.error("Error fetching device data: %s", ex)
@@ -382,6 +426,13 @@ class ZteDataCoordinator(DataUpdateCoordinator):
 
                     wanstatus = self.client.get_wan_status()
                     routerdetails = self.client.get_router_details()
+
+                    # Mesh topology enrichment (session still alive)
+                    if devices is not None and self._mesh_topology:
+                        topo = self.client._try_topology()
+                        if topo:
+                            devices = self._enrich_topology(topo, devices)
+
                     return devices, wanstatus, routerdetails, True
                 except Exception as ex:
                     _LOGGER.debug("Fetch attempt error: %s", ex)
@@ -422,58 +473,6 @@ class ZteDataCoordinator(DataUpdateCoordinator):
             devices, wanstatus, routerdetails = await self.hass.async_add_executor_job(
                 _fetch_router_data
             )
-
-            # Topology enrichment: after ALL HTTPS data is collected,
-            # try the mesh topology endpoint over a separate HTTP session.
-            # This may invalidate the HTTPS session (single-admin constraint)
-            # but all HTTPS data is already safely fetched above.
-            if devices is not None and self._mesh_topology:
-                try:
-                    topo_devices = await self.hass.async_add_executor_job(
-                        self.client._try_topology
-                    )
-                    if topo_devices:
-                        # Enrich topology devices with SSID and metadata from
-                        # legacy WiFi/LAN data, then propagate SSID to agent
-                        # devices based on AccessType matching.
-                        if devices:
-                            legacy_by_mac = {
-                                d.get("MACAddress", ""): d for d in devices
-                            }
-                            # Phase 1: merge known fields by MAC
-                            for td in topo_devices:
-                                legacy = legacy_by_mac.get(td.get("MACAddress", ""))
-                                if legacy:
-                                    if legacy.get("Port"):
-                                        td["Port"] = legacy["Port"]
-                                    if legacy.get("ConnectTime"):
-                                        td["ConnectTime"] = legacy["ConnectTime"]
-                                    if legacy.get("LinkTime"):
-                                        td["LinkTime"] = legacy["LinkTime"]
-
-                            # Phase 2: build AccessType→SSID map from enriched
-                            # controller devices, then apply to agent devices
-                            # that have the same AccessType but no SSID yet.
-                            ssid_by_access = {}
-                            for td in topo_devices:
-                                port = td.get("Port", "")
-                                access = td.get("_AccessType", "")
-                                if port and access and access not in ssid_by_access:
-                                    ssid_by_access[access] = port
-                            for td in topo_devices:
-                                if not td.get("Port") and td.get("_AccessType"):
-                                    td["Port"] = ssid_by_access.get(
-                                        td["_AccessType"], ""
-                                    )
-
-                        _LOGGER.info(
-                            "Mesh topology: %d devices (was %d from legacy)",
-                            len(topo_devices),
-                            len(devices),
-                        )
-                        devices = topo_devices
-                except Exception as ex:
-                    _LOGGER.debug("Topology enrichment failed: %s", ex)
 
         if devices is None:
             self._available = False
