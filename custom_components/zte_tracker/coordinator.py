@@ -57,6 +57,13 @@ class ZteDataCoordinator(DataUpdateCoordinator):
         query_wan = bool(query_wan) if query_wan is not None else True
         query_router = bool(query_router) if query_router is not None else True
 
+        self._mesh_topology = bool(
+            entry.options.get(
+                CONF_MESH_TOPOLOGY,
+                entry.data.get(CONF_MESH_TOPOLOGY, DEFAULT_MESH_TOPOLOGY),
+            )
+        )
+
         self.client = zteClient(
             entry.data[CONF_HOST],
             entry.data[CONF_USERNAME],
@@ -75,29 +82,11 @@ class ZteDataCoordinator(DataUpdateCoordinator):
         self._device_cache: dict[str, dict[str, Any]] = {}
         self._last_successful_update: datetime | None = None
         self._last_login_at: datetime | None = None
-        # Serializes ALL access to self.client across the coordinator polling
-        # loop, the reboot service, the options-update reauth path, and
-        # pause_scanning. The underlying requests.Session is not thread-safe and
-        # the router daemon will emit "Client token is not equal to server
-        # token" if two flows step on each other.
         self._client_lock = asyncio.Lock()
-        # Opt-in session reuse: user-configurable per integration entry via the
-        # options flow. Off by default so existing users keep the original
-        # upstream login/fetch/logout flow. Enabling it eliminates the
-        # per-poll login/logout pairs on firmwares (e.g. F6600P) where the
-        # upstream login_need_refresh short-circuit fails. The fallback path
-        # in _fetch_router_data_reuse handles stale sessions, so this is safe
-        # to try on any model.
         self._reuse_session = bool(
             entry.options.get(
                 CONF_SESSION_REUSE,
                 entry.data.get(CONF_SESSION_REUSE, DEFAULT_SESSION_REUSE),
-            )
-        )
-        self._mesh_topology = bool(
-            entry.options.get(
-                CONF_MESH_TOPOLOGY,
-                entry.data.get(CONF_MESH_TOPOLOGY, DEFAULT_MESH_TOPOLOGY),
             )
         )
 
