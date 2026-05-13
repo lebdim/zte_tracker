@@ -157,7 +157,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if client:
             client.query_wan_status = bool(query_wan)
             client.query_router_details = bool(query_router)
-            client.mesh_topology = new_mesh_topology
+            if client.mesh_topology != new_mesh_topology:
+                # mesh_topology change requires session re-init (page load +
+                # headers differ). Force logout so next poll creates a fresh
+                # session with the correct setup.
+                client.mesh_topology = new_mesh_topology
+                try:
+                    async with coordinator._client_lock:
+                        await hass.async_add_executor_job(client.logout)
+                        coordinator._last_login_at = None
+                except Exception:
+                    pass
+            else:
+                client.mesh_topology = new_mesh_topology
 
         # Request an immediate refresh so the new options take effect
         try:
