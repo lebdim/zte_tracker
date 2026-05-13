@@ -40,7 +40,7 @@ _MODELS = {
         "tag_wan_status_view": "ethWanStatus&Menu3Location=0",
         "tag_wan_status_data": "wan_internetstatus_lua.lua&TypeUplink=2&pageType=1",
         "topo_data_tag": "topo_lua.lua",
-        "default_scheme": "http",
+        "default_scheme": "https",
     },
     "H288A": {
         "wlan_script": "accessdev_ssiddev_lua.lua",
@@ -134,7 +134,12 @@ class zteClient:
         return list(_MODELS.keys())
 
     def _setup_session(self) -> None:
-        """Set up HTTP session with retry strategy and security settings."""
+        """Set up HTTP session with retry strategy and browser-like settings.
+
+        Performs an initial page load to initialize the router's session
+        state and cookies (``_TESTCOOKIESUPPORT``/``SID``).  Without this,
+        the ZTE firmware rejects subsequent API calls with SessionTimeout.
+        """
         self.session = Session()
 
         # Set up retry strategy
@@ -148,11 +153,29 @@ class zteClient:
         self.session.mount("http://", adapter)
         self.session.mount("https://", adapter)
 
-        # Set headers
+        # Set browser-like headers
         self.session.headers.update(
             {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                 "DNT": "1",
+            }
+        )
+
+        # Initial page load — initializes server-side session state and
+        # sets required cookies (_TESTCOOKIESUPPORT / SID / SID_HTTPS_).
+        try:
+            self.session.get(
+                f"{self.base_url}/", verify=self.verify_ssl, timeout=10
+            )
+        except Exception:
+            pass  # Best-effort; login will fail later if router unreachable
+
+        # Add XHR headers AFTER page load (page load must look like
+        # a normal browser navigation, not an AJAX request)
+        self.session.headers.update(
+            {
+                "X-Requested-With": "XMLHttpRequest",
+                "Referer": f"{self.base_url}/",
             }
         )
 
@@ -252,7 +275,15 @@ class zteClient:
 
             # Handle refresh requirement
             if self.login_data.get("login_need_refresh") == 1:
-                _LOGGER.debug("Login refresh required")
+                _LOGGER.debug("Login refresh required, reloading page")
+                try:
+                    self.session.get(
+                        f"{self.base_url}/",
+                        verify=self.verify_ssl,
+                        timeout=10,
+                    )
+                except Exception:
+                    pass  # Best-effort reload
             # Check for error messaging.
             if self.login_data.get("lockingTime", 0) == -1:
                 self.statusmsg = f"Router is locked: {self.login_data.get('loginErrMsg', 'Unknown error')}"

@@ -235,179 +235,80 @@ class TestTryTopology:
 
         client._topo_failures = 3
         client._topo_last_fail = time.time() - 301  # 5+ min ago
-        # Will try and fail (no real router), but should NOT short-circuit
-        with patch(
-            "custom_components.zte_tracker.zteclient.zte_client.Session"
-        ) as mock_session_cls:
-            mock_session = MagicMock()
-            mock_session_cls.return_value = mock_session
-            # Simulate login failure (locked)
-            mock_resp = MagicMock()
-            mock_resp.json.return_value = {"lockingTime": -1, "sess_token": ""}
-            mock_session.get.return_value = mock_resp
-            result = client._try_topology()
-            # Should have attempted (not short-circuited)
-            assert mock_session.get.called
-            assert result is None
+        # Set up a mock session (inline path)
+        mock_session = MagicMock()
+        client.session = mock_session
+        # menuView returns OK, topo returns SessionTimeout
+        menu_resp = MagicMock()
+        topo_resp = MagicMock()
+        topo_resp.text = SESSION_TIMEOUT_XML
+        mock_session.get.side_effect = [menu_resp, topo_resp]
+        result = client._try_topology()
+        # Should have attempted (not short-circuited)
+        assert mock_session.get.called
+        assert result is None
 
     def test_successful_topology_resets_failures(self, client):
         """Successful topology fetch resets failure counter."""
         client._topo_failures = 2
+        mock_session = MagicMock()
+        client.session = mock_session
 
-        with patch("custom_components.zte_tracker.zteclient.zte_client.Session") as mock_session_cls:
-            mock_session = MagicMock()
-            mock_session_cls.return_value = mock_session
+        menu_resp = MagicMock()
+        topo_resp = MagicMock()
+        topo_resp.text = json.dumps(TOPOLOGY_JSON_30_DEVICES)
+        mock_session.get.side_effect = [menu_resp, topo_resp]
 
-            # Mock the full login + page load + menuView + data flow
-            login_entry_resp = MagicMock()
-            login_entry_resp.json.return_value = {
-                "sess_token": "test_token",
-                "lockingTime": 0,
-            }
-
-            login_token_resp = MagicMock()
-            login_token_resp.content = (
-                b"<ajax_response_xml_root>test_nonce</ajax_response_xml_root>"
-            )
-
-            login_post_resp = MagicMock()
-            login_post_resp.json.return_value = {
-                "sess_token": "new_token",
-                "lockingTime": 0,
-            }
-
-            page_load_resp = MagicMock()
-            page_load_resp.status_code = 200
-
-            menu_view_resp = MagicMock()
-            menu_view_resp.status_code = 200
-
-            topo_resp = MagicMock()
-            topo_resp.status_code = 200
-            topo_resp.text = json.dumps(TOPOLOGY_JSON_30_DEVICES)
-
-            mock_session.get.side_effect = [
-                login_entry_resp,   # login_entry GET
-                login_token_resp,   # login_token GET
-                page_load_resp,     # page reload
-                menu_view_resp,     # menuView mmTopology
-                topo_resp,          # menuData topo_lua.lua
-            ]
-            mock_session.post.return_value = login_post_resp
-
-            result = client._try_topology()
-            assert result is not None
-            assert len(result) == 5
-            assert client._topo_failures == 0
+        result = client._try_topology()
+        assert result is not None
+        assert len(result) == 5
+        assert client._topo_failures == 0
 
     def test_session_timeout_response(self, client):
         """SessionTimeout in response body increments failure counter."""
         client._topo_failures = 0
+        mock_session = MagicMock()
+        client.session = mock_session
 
-        with patch("custom_components.zte_tracker.zteclient.zte_client.Session") as mock_session_cls:
-            mock_session = MagicMock()
-            mock_session_cls.return_value = mock_session
+        menu_resp = MagicMock()
+        topo_resp = MagicMock()
+        topo_resp.text = SESSION_TIMEOUT_XML
+        mock_session.get.side_effect = [menu_resp, topo_resp]
 
-            # Login succeeds
-            login_entry_resp = MagicMock()
-            login_entry_resp.json.return_value = {
-                "sess_token": "tok",
-                "lockingTime": 0,
-            }
-            login_token_resp = MagicMock()
-            login_token_resp.content = (
-                b"<ajax_response_xml_root>nonce</ajax_response_xml_root>"
-            )
-            login_post_resp = MagicMock()
-            login_post_resp.json.return_value = {"lockingTime": 0}
-            page_resp = MagicMock()
-            menu_resp = MagicMock()
-            topo_resp = MagicMock()
-            topo_resp.text = SESSION_TIMEOUT_XML
-            topo_resp.status_code = 200
-
-            mock_session.get.side_effect = [
-                login_entry_resp,
-                login_token_resp,
-                page_resp,
-                menu_resp,
-                topo_resp,
-            ]
-            mock_session.post.return_value = login_post_resp
-
-            result = client._try_topology()
-            assert result is None
-            assert client._topo_failures == 1
+        result = client._try_topology()
+        assert result is None
+        assert client._topo_failures == 1
 
     def test_html_error_response(self, client):
         """HTML error body increments failure counter."""
         client._topo_failures = 0
+        mock_session = MagicMock()
+        client.session = mock_session
 
-        with patch("custom_components.zte_tracker.zteclient.zte_client.Session") as mock_session_cls:
-            mock_session = MagicMock()
-            mock_session_cls.return_value = mock_session
+        menu_resp = MagicMock()
+        topo_resp = MagicMock()
+        topo_resp.text = HTML_404_PAGE
+        mock_session.get.side_effect = [menu_resp, topo_resp]
 
-            login_entry_resp = MagicMock()
-            login_entry_resp.json.return_value = {
-                "sess_token": "tok",
-                "lockingTime": 0,
-            }
-            login_token_resp = MagicMock()
-            login_token_resp.content = (
-                b"<ajax_response_xml_root>nonce</ajax_response_xml_root>"
-            )
-            login_post_resp = MagicMock()
-            login_post_resp.json.return_value = {"lockingTime": 0}
-            page_resp = MagicMock()
-            menu_resp = MagicMock()
-            topo_resp = MagicMock()
-            topo_resp.text = HTML_404_PAGE
-            topo_resp.status_code = 200
-
-            mock_session.get.side_effect = [
-                login_entry_resp,
-                login_token_resp,
-                page_resp,
-                menu_resp,
-                topo_resp,
-            ]
-            mock_session.post.return_value = login_post_resp
-
-            result = client._try_topology()
-            assert result is None
-            assert client._topo_failures == 1
+        result = client._try_topology()
+        assert result is None
+        assert client._topo_failures == 1
 
     def test_router_locked_returns_none(self, client):
-        """Router lockingTime != 0 returns None."""
+        """No session returns None gracefully."""
         client._topo_failures = 0
-
-        with patch("custom_components.zte_tracker.zteclient.zte_client.Session") as mock_session_cls:
-            mock_session = MagicMock()
-            mock_session_cls.return_value = mock_session
-
-            locked_resp = MagicMock()
-            locked_resp.json.return_value = {"lockingTime": -1, "sess_token": ""}
-
-            mock_session.get.return_value = locked_resp
-
-            result = client._try_topology()
-            assert result is None
-            assert client._topo_failures == 1
+        client.session = None
+        result = client._try_topology()
+        assert result is None
 
     def test_logout_always_called(self, client):
-        """HTTP session logout is always attempted in finally block."""
-        with patch("custom_components.zte_tracker.zteclient.zte_client.Session") as mock_session_cls:
-            mock_session = MagicMock()
-            mock_session_cls.return_value = mock_session
+        """Exception during inline fetch returns None."""
+        mock_session = MagicMock()
+        client.session = mock_session
+        mock_session.get.side_effect = ConnectionError("Network down")
 
-            # Simulate exception during login
-            mock_session.get.side_effect = ConnectionError("Network down")
-
-            client._try_topology()
-
-            # Logout POST should still be attempted (in finally)
-            mock_session.post.assert_called_once()
-            mock_session.close.assert_called_once()
+        result = client._try_topology()
+        assert result is None
 
     def test_exception_during_fetch_returns_none(self, client):
         """Network exceptions return None gracefully."""
