@@ -12,8 +12,8 @@
           "model": "Router Model",
           "query_wan_status": "Query WAN status",
           "query_router_details": "Query router details",
-          "session_reuse": "Reuse router session across polls (reduces login spam in router logs; recommended if your router logs an auth event on every poll)",
-          "mesh_topology": "Query mesh topology for all devices across mesh nodes (requires HTTP access to router)"
+          "session_reuse": "Persistent session (reduces auth log noise)",
+          "mesh_topology": "Mesh topology (see all mesh node devices)"
         }
       }
     },
@@ -39,8 +39,8 @@
           "model": "Router Model",
           "query_wan_status": "Query WAN status",
           "query_router_details": "Query router details",
-          "session_reuse": "Reuse router session across polls (reduces login spam in router logs; recommended if your router logs an auth event on every poll)",
-          "mesh_topology": "Query mesh topology for all devices across mesh nodes (requires HTTP access to router)"
+          "session_reuse": "Persistent session (reduces auth log noise)",
+          "mesh_topology": "Mesh topology (see all mesh node devices)"
         }
       }
     }
